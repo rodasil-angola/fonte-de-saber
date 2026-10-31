@@ -42,16 +42,92 @@ document.documentElement.classList.add('js');
   });
 })();
 
-/* Animações de entrada (fade-in / slide-up) */
+/* Animações de entrada ao fazer scroll
+   - variante automática por tipo de elemento (data-anim): imagens com "clip", colunas laterais com "left"/"right", cartões com "zoom"
+   - escalonamento automático (--d) entre irmãos que não tenham atraso definido no HTML
+   - no fim da entrada retira .reveal para o elemento voltar às suas próprias transições (hover) */
 (function () {
-  var items = document.querySelectorAll('.reveal');
-  if (!('IntersectionObserver' in window)) { items.forEach(function (el) { el.classList.add('is-visible'); }); return; }
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var items = Array.prototype.slice.call(document.querySelectorAll('.reveal'));
+  var variants = [
+    ['.media, .intro__visual, .map', 'clip'],
+    ['.form-aside, .location__card, .req__intro', 'left'],
+    ['.form-card', 'right'],
+    ['.edu-card, .course-card, .why-card, .req-card, .contact-card, .health-card, .level-card, .paths__node, .periods, .gallery__preview', 'zoom']
+  ];
+  items.forEach(function (el) {
+    if (el.hasAttribute('data-anim')) return;
+    for (var i = 0; i < variants.length; i++) { if (el.matches(variants[i][0])) { el.setAttribute('data-anim', variants[i][1]); return; } }
+    el.setAttribute('data-anim', 'up');
+  });
+  // irmãos .reveal sem --d no HTML entram um a seguir ao outro
+  var groups = new Map();
+  items.forEach(function (el) {
+    if (el.style.getPropertyValue('--d')) return;
+    var p = el.parentElement, list = groups.get(p) || [];
+    list.push(el); groups.set(p, list);
+  });
+  groups.forEach(function (list) {
+    if (list.length < 2) return;
+    list.forEach(function (el, i) { el.style.setProperty('--d', Math.min(i * 0.09, 0.45).toFixed(2) + 's'); });
+  });
+
+  var finish = function (el) {
+    var delay = parseFloat(el.style.getPropertyValue('--d')) || 0;
+    var dur = el.getAttribute('data-anim') === 'clip' ? 1700 : 1200;
+    setTimeout(function () { el.classList.remove('reveal', 'is-visible'); el.removeAttribute('data-anim'); }, (reduce ? 800 : dur) + delay * 1000);
+  };
+  var lines = document.querySelectorAll('.timeline, .paths__line');
+  if (!('IntersectionObserver' in window)) {
+    items.forEach(function (el) { el.classList.add('is-visible'); finish(el); });
+    lines.forEach(function (el) { el.classList.add('is-drawn'); });
+    return;
+  }
   var io = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
-      if (entry.isIntersecting) { entry.target.classList.add('is-visible'); io.unobserve(entry.target); }
+      if (!entry.isIntersecting) return;
+      var el = entry.target;
+      if (el.classList.contains('reveal')) { el.classList.add('is-visible'); finish(el); } else { el.classList.add('is-drawn'); }
+      io.unobserve(el);
     });
   }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
   items.forEach(function (el) { io.observe(el); });
+  lines.forEach(function (el) { io.observe(el); });
+})();
+
+/* Barra de progresso de leitura */
+(function () {
+  var bar = document.createElement('div');
+  bar.className = 'scroll-progress';
+  bar.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(bar);
+  var ticking = false;
+  var update = function () {
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.transform = 'scaleX(' + (max > 0 ? Math.min(window.scrollY / max, 1) : 0) + ')';
+    ticking = false;
+  };
+  window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+  window.addEventListener('resize', update);
+  update();
+})();
+
+/* Transição entre páginas: os browsers com View Transitions tratam disso no CSS;
+   nos restantes, fade-out rápido antes de seguir o link interno */
+(function () {
+  if ('CSSViewTransitionRule' in window) return;
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a');
+    if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (a.target && a.target !== '_self') return;
+    if (a.hasAttribute('download') || a.origin !== location.origin) return;
+    if (a.pathname === location.pathname && a.hash) return; // âncoras na mesma página
+    e.preventDefault();
+    document.body.classList.add('is-leaving');
+    setTimeout(function () { location.href = a.href; }, 240);
+  });
+  // ao voltar com o botão "anterior" (bfcache) a página não pode ficar invisível
+  window.addEventListener('pageshow', function (e) { if (e.persisted) document.body.classList.remove('is-leaving'); });
 })();
 
 /* Gallery: filtros + Lightbox */
